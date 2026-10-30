@@ -6,6 +6,7 @@
 package pig_warp
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -18,7 +19,8 @@ import (
 func Extension() *sdk.Extension {
 	e := sdk.New("pig-warp")
 	registerBranch(e)
-	if supportsStructured() {
+	// A subagent child shares the parent's terminal; only the parent speaks to Warp.
+	if supportsStructured() && os.Getenv("PIG_SUBAGENT") == "" && os.Getenv("TINTINWEB_SUBAGENT_DEPTH") == "" {
 		registerNotify(e)
 	}
 	return e

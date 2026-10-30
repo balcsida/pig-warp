@@ -6,6 +6,7 @@ package pig_warp
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -17,14 +18,16 @@ var frameInterval = 80 * time.Millisecond // PiG: tui/loader.go DefaultLoaderInt
 
 type spinner struct {
 	mu   sync.Mutex
+	text atomic.Pointer[string]
 	stop chan struct{}
 	done chan struct{}
 }
 
-// start is idempotent: a running ticker is kept (title-spinner.ts:97).
-func (s *spinner) start(suffix string) {
+// show starts the spinner with text after the frame; a running ticker is kept (title-spinner.ts:97) and shows the new text from its next frame.
+func (s *spinner) show(text string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.text.Store(&text)
 	if s.stop != nil {
 		return
 	}
@@ -40,7 +43,7 @@ func (s *spinner) start(suffix string) {
 			case <-stop:
 				return
 			case <-t.C:
-				writeRaw(formatOSC0(spinnerFrames[frame%len(spinnerFrames)] + suffix))
+				writeRaw(formatOSC0(spinnerFrames[frame%len(spinnerFrames)] + *s.text.Load()))
 			}
 		}
 	}()

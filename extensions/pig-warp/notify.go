@@ -3,6 +3,8 @@ package pig_warp
 // Lifecycle handlers that emit OSC 777 notifications. upstream: rpiv-warp/index.ts.
 
 import (
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +13,12 @@ import (
 
 // idleDelay is the pause after agent_end before idle_prompt (index.ts:122); a variable so tests can shorten it.
 var idleDelay = 300 * time.Millisecond
+
+// subagentTools maps a subagent tool to the argument naming its agent: pigpen-subagents' `subagent` and tintinweb-subagents' `Agent`.
+var subagentTools = map[string]string{"subagent": "agent", "Agent": "subagent_type"}
+
+// runningAgent is a subagent shown in the title, keyed by its tool call or, for a tintinweb background agent, its agent id.
+type runningAgent struct{ key, name string }
 
 type pendingCall struct {
 	id, name string
@@ -30,6 +38,12 @@ type notifier struct {
 	idle    *time.Timer
 	hbStop  chan struct{}
 	spinner spinner
+	// turn is true from agent_start to agent_end; suffix is the title after the frame, from the last turn.
+	turn   bool
+	suffix string
+	agents []runningAgent
+	// task is pigpen-todo's task in progress, shown before the agents.
+	task string
 }
 
 func registerNotify(e *sdk.Extension) {
@@ -71,13 +85,19 @@ func registerNotify(e *sdk.Extension) {
 		if err != nil {
 			return nil, err
 		}
+		branch, err := ctx.SessionManager().GetBranch(nil)
+		if err != nil {
+			return nil, err
+		}
 		n.mu.Lock()
 		defer n.mu.Unlock()
+		n.task = replayTask(branch)
 		if !n.customRun {
 			emit(s.sessionStart()) // defensive re-announce
 			emit(s.promptSubmit(n.pendingQuery))
 		}
-		n.spinner.start(suffix)
+		n.turn, n.suffix = true, suffix
+		n.refreshSpinner()
 		n.cancelIdle()
 		n.startHeartbeat(s)
 		return nil, nil
@@ -99,7 +119,8 @@ func registerNotify(e *sdk.Extension) {
 		}
 		n.pending = nil
 		emit(s.stop(branch))
-		n.spinner.end()
+		n.turn = false
+		n.refreshSpinner()
 		n.stopHeartbeat()
 		n.cancelIdle()
 		summary := lastMessageText(branch, "assistant")
@@ -122,13 +143,45 @@ func registerNotify(e *sdk.Extension) {
 		defer n.mu.Unlock()
 		n.pending = append(n.pending, pendingCall{id: id, name: name, input: objectOrNil(input)})
 		emit(s.questionAsked())
-		n.spinner.end()
+		n.refreshSpinner()
 		n.stopHeartbeat()
+		return nil, nil
+	})
+
+	e.OnEvent(sdk.EventToolExecutionStart, func(_ sdk.Context, data map[string]any) (any, error) {
+		name, _ := data["toolName"].(string)
+		arg, ok := subagentTools[name]
+		args, _ := data["args"].(map[string]any)
+		if !ok || args["action"] != nil { // list and get run no agent
+			return nil, nil
+		}
+		id, _ := data["toolCallId"].(string)
+		agent, _ := args[arg].(string)
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		n.addAgent(id, agent)
 		return nil, nil
 	})
 
 	e.OnEvent(sdk.EventToolExecutionEnd, func(ctx sdk.Context, data map[string]any) (any, error) {
 		name, _ := data["toolName"].(string)
+		id, _ := data["toolCallId"].(string)
+		if _, ok := subagentTools[name]; ok {
+			n.mu.Lock()
+			defer n.mu.Unlock()
+			n.removeAgent(id)
+			return nil, nil
+		}
+		if name == "todo" {
+			result, _ := data["result"].(map[string]any)
+			if task, ok := todoTask(result["details"]); ok {
+				n.mu.Lock()
+				defer n.mu.Unlock()
+				n.task = task
+				n.refreshSpinner()
+			}
+			return nil, nil
+		}
 		if !n.blocking[name] {
 			return nil, nil
 		}
@@ -140,7 +193,6 @@ func registerNotify(e *sdk.Extension) {
 		if err != nil {
 			return nil, err
 		}
-		id, _ := data["toolCallId"].(string)
 		n.mu.Lock()
 		defer n.mu.Unlock()
 		var input any
@@ -152,7 +204,8 @@ func registerNotify(e *sdk.Extension) {
 			}
 		}
 		emit(s.toolComplete(name, input))
-		n.spinner.start(suffix)
+		n.suffix = suffix
+		n.refreshSpinner()
 		n.startHeartbeat(s)
 		return nil, nil
 	})
@@ -163,9 +216,78 @@ func registerNotify(e *sdk.Extension) {
 		n.cancelIdle()
 		n.stopHeartbeat()
 		n.pendingQuery, n.customRun, n.pending = "", false, nil
+		n.turn, n.agents, n.task = false, nil, ""
 		n.spinner.end()
 		return nil, nil
 	})
+
+	// tintinweb-subagents runs agents in the background past the turn; its bus events bracket them (created is background only).
+	bus := e.Events()
+	_, _ = bus.On("subagents:created", func(_ sdk.Context, data any) error {
+		m, _ := data.(map[string]any)
+		id, _ := m["id"].(string)
+		typ, _ := m["type"].(string)
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		n.addAgent(id, typ)
+		return nil
+	})
+	settled := func(_ sdk.Context, data any) error {
+		m, _ := data.(map[string]any)
+		id, _ := m["id"].(string)
+		n.mu.Lock()
+		defer n.mu.Unlock()
+		n.removeAgent(id)
+		return nil
+	}
+	_, _ = bus.On("subagents:completed", settled)
+	_, _ = bus.On("subagents:failed", settled)
+}
+
+// callers hold n.mu
+func (n *notifier) addAgent(key, name string) {
+	if name = jsTrim(name); name == "" {
+		name = "agent"
+	}
+	n.agents = append(n.agents, runningAgent{key, name})
+	n.refreshSpinner()
+}
+
+// callers hold n.mu
+func (n *notifier) removeAgent(key string) {
+	for i, a := range n.agents {
+		if a.key == key {
+			n.agents = append(n.agents[:i], n.agents[i+1:]...)
+			n.refreshSpinner()
+			return
+		}
+	}
+}
+
+// refreshSpinner runs the spinner during a turn that waits on no question, and while any subagent runs. The title
+// names the task in progress and the first subagent, counting the rest: `⠋ Running tests · scout +2 - <repo>`.
+// callers hold n.mu
+func (n *notifier) refreshSpinner() {
+	var parts []string
+	if n.task != "" {
+		parts = append(parts, n.task)
+	}
+	switch len(n.agents) {
+	case 0:
+	case 1:
+		parts = append(parts, n.agents[0].name)
+	default:
+		parts = append(parts, fmt.Sprintf("%s +%d", n.agents[0].name, len(n.agents)-1))
+	}
+	label := ""
+	if len(parts) > 0 {
+		label = " " + strings.Join(parts, " · ")
+	}
+	if (n.turn && len(n.pending) == 0) || len(n.agents) > 0 {
+		n.spinner.show(label + n.suffix)
+	} else {
+		n.spinner.end()
+	}
 }
 
 // objectOrNil keeps `tool_input` absent when the input was not an object (index.ts:150), and `{}` when it was empty.
@@ -232,4 +354,40 @@ func (n *notifier) stopHeartbeat() {
 		close(n.hbStop)
 		n.hbStop = nil
 	}
+}
+
+// todoTask reads pigpen-todo's snapshot (every `todo` result carries the whole list in details.tasks): the first task in
+// progress, by its activeForm or else its subject. ok is false when details is no snapshot.
+func todoTask(details any) (task string, ok bool) {
+	m, _ := details.(map[string]any)
+	tasks, ok := m["tasks"].([]any)
+	if !ok {
+		return "", false
+	}
+	for _, t := range tasks {
+		t, _ := t.(map[string]any)
+		if t["status"] != "in_progress" {
+			continue
+		}
+		if s, _ := t["activeForm"].(string); jsTrim(s) != "" {
+			return jsTrim(s), true
+		}
+		s, _ := t["subject"].(string)
+		return jsTrim(s), true
+	}
+	return "", true
+}
+
+// replayTask is the task in progress of the last `todo` snapshot on the branch, as pigpen-todo rebuilds its list.
+func replayTask(branch []map[string]any) string {
+	for i := len(branch) - 1; i >= 0; i-- {
+		msg, _ := branch[i]["message"].(map[string]any)
+		if branch[i]["type"] != "message" || msg["role"] != "toolResult" || msg["toolName"] != "todo" {
+			continue
+		}
+		if task, ok := todoTask(msg["details"]); ok {
+			return task
+		}
+	}
+	return ""
 }

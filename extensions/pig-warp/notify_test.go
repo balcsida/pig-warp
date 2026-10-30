@@ -1,6 +1,7 @@
 package pig_warp_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -281,4 +282,124 @@ func TestShutdownStopsEverything(t *testing.T) {
 	if len(w.all()) != n {
 		t.Error("writes continued after shutdown")
 	}
+}
+
+func TestSubagentChildRegistersNothing(t *testing.T) {
+	for _, env := range []string{"PIG_SUBAGENT", "TINTINWEB_SUBAGENT_DEPTH"} {
+		t.Run(env, func(t *testing.T) {
+			warpEnv(t)
+			t.Setenv(env, "1")
+			if h := StartHost(t, pigwarp.Extension(), HostOptions{}); h.Registered("agent_start") {
+				t.Error("agent_start registered in a subagent child")
+			}
+		})
+	}
+}
+
+// busEmit delivers a pi.events emit to the extension's listener on channel, as the host does.
+func busEmit(t *testing.T, h *Host, channel string, data map[string]any) {
+	t.Helper()
+	for _, c := range h.CallsTo("events.on") {
+		if c.Args["channel"] == channel {
+			raw, _ := json.Marshal(data)
+			if _, failure := h.roundTrip(map[string]any{"method": "events.dispatch", "args": map[string]any{"handlerId": c.Args["handlerId"], "channel": channel, "json": json.RawMessage(raw)}}); failure != "" {
+				t.Fatalf("%s: %s", channel, failure)
+			}
+			return
+		}
+	}
+	t.Fatalf("no listener on %s", channel)
+}
+
+// lastTitle is the last OSC 0 title written after the writes counted by from.
+func lastTitle(w *writes, from int) string {
+	all := w.all()
+	for i := len(all) - 1; i >= from; i-- {
+		if strings.HasPrefix(all[i], "\x1b]0;") {
+			return all[i]
+		}
+	}
+	return ""
+}
+
+func waitTitle(t *testing.T, w *writes, title string) {
+	t.Helper()
+	from := len(w.all())
+	waitFor(t, title, func() bool { return lastTitle(w, from) == "\x1b]0;"+title+"\a" })
+}
+
+func TestForegroundSubagentInTitle(t *testing.T) {
+	warpEnv(t)
+	*pigwarp.FrameInterval = 5 * time.Millisecond
+	h, w := startNotifyRig(t, &sessionState{})
+	h.Fire("agent_start", nil)
+	waitTitle(t, w, "⠋ - proj")
+	// list and get run no agent.
+	h.Fire("tool_execution_start", map[string]any{"toolCallId": "c0", "toolName": "subagent", "args": map[string]any{"action": "list"}})
+	h.Fire("tool_execution_start", map[string]any{"toolCallId": "c1", "toolName": "subagent", "args": map[string]any{"agent": "scout", "task": "look"}})
+	waitTitle(t, w, "⠋ scout - proj")
+	h.Fire("tool_execution_start", map[string]any{"toolCallId": "c2", "toolName": "Agent", "args": map[string]any{"subagent_type": "Explore"}})
+	waitTitle(t, w, "⠋ scout +1 - proj")
+	h.Fire("tool_execution_end", map[string]any{"toolCallId": "c1", "toolName": "subagent"})
+	waitTitle(t, w, "⠋ Explore - proj")
+	h.Fire("tool_execution_end", map[string]any{"toolCallId": "c2", "toolName": "Agent"})
+	waitTitle(t, w, "⠋ - proj")
+}
+
+func TestBackgroundSubagentKeepsSpinnerPastTurn(t *testing.T) {
+	warpEnv(t)
+	*pigwarp.IdleDelay = time.Hour
+	*pigwarp.FrameInterval = 5 * time.Millisecond
+	h, w := startNotifyRig(t, &sessionState{})
+	h.Fire("agent_start", nil)
+	busEmit(t, h, "subagents:created", map[string]any{"id": "a1", "type": "Explore", "isBackground": true})
+	busEmit(t, h, "subagents:created", map[string]any{"id": "a2", "type": "Plan", "isBackground": true})
+	h.Fire("agent_end", nil)
+	waitTitle(t, w, "⠋ Explore +1 - proj")
+	busEmit(t, h, "subagents:failed", map[string]any{"id": "a1"})
+	waitTitle(t, w, "⠋ Plan - proj")
+	busEmit(t, h, "subagents:completed", map[string]any{"id": "a2"})
+	if all := w.all(); all[len(all)-1] != pigwarp.PopTitleStack {
+		t.Errorf("expected title pop once the last agent settled, got %q", all[len(all)-1])
+	}
+}
+
+func todoSnapshot(tasks ...map[string]any) map[string]any {
+	list := []any{}
+	for _, t := range tasks {
+		list = append(list, t)
+	}
+	return map[string]any{"action": "update", "params": map[string]any{}, "tasks": list, "nextId": len(tasks) + 1}
+}
+
+func TestTodoTaskInTitle(t *testing.T) {
+	warpEnv(t)
+	*pigwarp.FrameInterval = 5 * time.Millisecond
+	// A resumed session: the branch's last todo snapshot has a task in progress, by subject only.
+	s := &sessionState{branch: []map[string]any{
+		{"type": "message", "message": map[string]any{"role": "toolResult", "toolName": "todo", "details": todoSnapshot(
+			map[string]any{"id": 1.0, "subject": "Write tests", "status": "completed"},
+			map[string]any{"id": 2.0, "subject": "Implement", "status": "in_progress"},
+		)}},
+		{"type": "message", "message": map[string]any{"role": "toolResult", "toolName": "read", "details": map[string]any{}}},
+	}}
+	h, w := startNotifyRig(t, s)
+	h.Fire("agent_start", nil)
+	waitTitle(t, w, "⠋ Implement - proj")
+
+	// A todo result switches to its first task in progress, by activeForm.
+	h.Fire("tool_execution_end", map[string]any{"toolCallId": "t1", "toolName": "todo", "result": map[string]any{"details": todoSnapshot(
+		map[string]any{"id": 2.0, "subject": "Implement", "status": "completed"},
+		map[string]any{"id": 3.0, "subject": "Release", "activeForm": "Releasing", "status": "in_progress"},
+	)}})
+	waitTitle(t, w, "⠋ Releasing - proj")
+	h.Fire("tool_execution_start", map[string]any{"toolCallId": "c1", "toolName": "subagent", "args": map[string]any{"agent": "worker"}})
+	waitTitle(t, w, "⠋ Releasing · worker - proj")
+
+	// A result without a snapshot (an error) keeps the task; one with nothing in progress clears it.
+	h.Fire("tool_execution_end", map[string]any{"toolCallId": "t2", "toolName": "todo", "result": map[string]any{}})
+	h.Fire("tool_execution_end", map[string]any{"toolCallId": "t3", "toolName": "todo", "result": map[string]any{"details": todoSnapshot(
+		map[string]any{"id": 3.0, "subject": "Release", "status": "completed"},
+	)}})
+	waitTitle(t, w, "⠋ worker - proj")
 }

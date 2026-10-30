@@ -33,6 +33,9 @@ Upstream line numbers refer to the vendored files.
 | W11 | title-spinner.ts | push title, PiG's `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` every 80 ms (upstream: `⠴ ⠦ ⠖ ⠲` every 160 ms) with ` - <repo>` or ` - <session> - <repo>`, pop on stop; idempotent | spinner.go | `TestTurnLifecycle`, `TestNamedSessionSpinnerSuffix` | diverged |
 | W12 | warp-notify.ts | open `/dev/tty`, write, close; every failure swallowed | osc.go | implicit (tests replace the writer) | mapped; Windows stdout path dropped (fuse hazard, untested upstream) |
 | W13 | config.ts | `blockingTools`, `heartbeatMs` (0 disables, invalid is default) from `$XDG_CONFIG_HOME` or `~/.config` | config.go | `TestLoadConfig`, `TestHeartbeat` | mapped; directory renamed `rpiv-warp` to `pig-warp` |
+| W15 | none | subagent children (`PIG_SUBAGENT`, `TINTINWEB_SUBAGENT_DEPTH`) register no notification handler | `Extension` | `TestSubagentChildRegistersNothing` | added: children share the parent's `/dev/tty` |
+| W16 | none | the title names subagents: `subagent`/`Agent` tool start and end, tintinweb's `subagents:created`/`completed`/`failed` bus events; the spinner runs while any is running, past the turn | notify.go | `TestForegroundSubagentInTitle`, `TestBackgroundSubagentKeepsSpinnerPastTurn` | added |
+| W17 | none | the title names pigpen-todo's task in progress, from `todo` results' `details.tasks` and, at `agent_start`, the branch's last snapshot | notify.go | `TestTodoTaskInTitle` | added; tintinweb-tasks not followed (no snapshot in its results) |
 | W14 | index.ts:70 `createWorkflowQuestionTransport` | run-keyed badge API for rpiv-pi | none | none | excluded: no consumer in PiG |
 | B1 | index.ts:484 `parseBranchArgs` | leading `--model <query>`, rest is the message | `parseBranchArgs` | `TestParseBranchArgs` | mapped |
 | B2 | index.ts:1343 | `/branch` refuses an unpersisted session and an empty session with notices | branch.go | `TestBranchRefusals` | mapped |
