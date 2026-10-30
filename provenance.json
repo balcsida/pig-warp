@@ -1,0 +1,38 @@
+{
+  "origin": "ported",
+  "authors": ["Dávid Balatoni"],
+  "license": "MIT",
+  "licenseFile": "LICENSE",
+  "upstreams": [
+    {
+      "name": "@juicesharp/rpiv-warp",
+      "authors": ["juicesharp"],
+      "url": "https://github.com/juicesharp/rpiv-mono",
+      "revision": "46dbdfd78ab631bbf3ce41c2618bb173a5ec2725",
+      "path": "port/oracle/rpiv-warp",
+      "license": "MIT",
+      "licenseFile": "port/oracle/rpiv-warp/LICENSE",
+      "attributionFile": "CREDITS.md"
+    },
+    {
+      "name": "pi-branch-out",
+      "authors": ["w-winter", "davidgasquez"],
+      "url": "https://github.com/w-winter/dot314",
+      "revision": "0f39f12239b544225b23a4cb0d7bc1927a0efa5f",
+      "path": "port/oracle/pi-branch-out/index.ts",
+      "license": "MIT",
+      "licenseFile": "port/oracle/pi-branch-out/LICENSE",
+      "attributionFile": "CREDITS.md"
+    },
+    {
+      "name": "pi-warp-kitty-images",
+      "authors": ["monotykamary"],
+      "url": "https://github.com/monotykamary/pi-warp-kitty-images",
+      "revision": "23225e287a3d0c5d1d0c6f12fad906d48a443c6f",
+      "path": "port/oracle/pi-warp-kitty-images/extensions/index.ts",
+      "license": "MIT",
+      "licenseFile": "port/oracle/pi-warp-kitty-images/README.md",
+      "attributionFile": "CREDITS.md"
+    }
+  ]
+}

@@ -1,0 +1,3 @@
+# Local SDK mapping for `go test`; PiG resolves the SDK itself at build time.
+extensions/pig-warp/go.work
+extensions/pig-warp/go.work.sum
