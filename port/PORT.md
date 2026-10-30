@@ -30,7 +30,7 @@ Upstream line numbers refer to the vendored files.
 | W8 | index.ts:232, 239 | blocking tool call: `question_asked`, spinner stop, heartbeat pause; its end: `tool_complete` with the captured input, spinner and heartbeat resume | notify.go | `TestBlockingToolBadge`, `TestHeartbeat` | mapped |
 | W9 | index.ts:247 | `session_shutdown` cancels timers and stops the spinner | notify.go | `TestShutdownStopsEverything` | mapped |
 | W10 | payload.ts | envelope `{v, agent:"pi", event, session_id, cwd, project}` plus per-event fields, 200-char truncation, skill-block collapse | payload.go | `TestPayloadJSON`, `TestTextHelpers` | mapped; truncation counts runes, upstream counts UTF-16 units |
-| W11 | title-spinner.ts | push title, `⠴ ⠦ ⠖ ⠲` every 160 ms with ` - <repo>` or ` - <session> - <repo>`, pop on stop; idempotent | spinner.go | `TestTurnLifecycle`, `TestNamedSessionSpinnerSuffix` | mapped |
+| W11 | title-spinner.ts | push title, PiG's `⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏` every 80 ms (upstream: `⠴ ⠦ ⠖ ⠲` every 160 ms) with ` - <repo>` or ` - <session> - <repo>`, pop on stop; idempotent | spinner.go | `TestTurnLifecycle`, `TestNamedSessionSpinnerSuffix` | diverged |
 | W12 | warp-notify.ts | open `/dev/tty`, write, close; every failure swallowed | osc.go | implicit (tests replace the writer) | mapped; Windows stdout path dropped (fuse hazard, untested upstream) |
 | W13 | config.ts | `blockingTools`, `heartbeatMs` (0 disables, invalid is default) from `$XDG_CONFIG_HOME` or `~/.config` | config.go | `TestLoadConfig`, `TestHeartbeat` | mapped; directory renamed `rpiv-warp` to `pig-warp` |
 | W14 | index.ts:70 `createWorkflowQuestionTransport` | run-keyed badge API for rpiv-pi | none | none | excluded: no consumer in PiG |

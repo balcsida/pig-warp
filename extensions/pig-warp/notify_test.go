@@ -80,7 +80,7 @@ func TestTurnLifecycle(t *testing.T) {
 	// The spinner pushed the title and animates with the unnamed suffix (a blank name is unnamed).
 	waitFor(t, "a spinner frame", func() bool {
 		for _, x := range w.all() {
-			if x == "\x1b]0;⠴ - proj\a" {
+			if x == "\x1b]0;⠋ - proj\a" {
 				return true
 			}
 		}
@@ -125,7 +125,7 @@ func TestNamedSessionSpinnerSuffix(t *testing.T) {
 	h.Fire("agent_start", nil)
 	waitFor(t, "a named frame", func() bool {
 		for _, x := range w.all() {
-			if x == "\x1b]0;⠴ - fix auth - proj\a" {
+			if x == "\x1b]0;⠋ - fix auth - proj\a" {
 				return true
 			}
 		}

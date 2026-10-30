@@ -20,7 +20,7 @@ Restart your PiG session inside Warp. Go is needed to build the extension from s
 
 Six lifecycle moments reach Warp as `OSC 777` cli-agent notifications: session start, prompt submitted, question asked, tool finished, turn stopped, gone idle. Each carries the project name, your query and the assistant's reply, so the toast reads `Pi needs attention — Waiting for your answer` or quotes the finished reply.
 
-- The tab title shows a braille spinner for as long as the turn runs (`⠴ - <repo>`, or `⠴ - <session> - <repo>` for a named session), then PiG's own title comes back.
+- The tab title shows a braille spinner for as long as the turn runs (`⠋ - <repo>`, or `⠋ - <session> - <repo>` for a named session), then PiG's own title comes back.
 - A blocking tool (`ask_user_question` by default) lights Warp's Blocked badge; an ESC-aborted question is drained at turn end so the badge never sticks.
 - The running prompt is re-announced every 15 seconds so Warp never marks a busy tab idle.
 

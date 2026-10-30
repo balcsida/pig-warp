@@ -9,10 +9,11 @@ import (
 	"time"
 )
 
-var spinnerFrames = []string{"⠴", "⠦", "⠖", "⠲"}
+// PiG's own working spinner (PiG tui/loader.go DefaultSpinnerFrames), not upstream's ⠴ ⠦ ⠖ ⠲.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
 // frameInterval is a variable so tests can shorten it.
-var frameInterval = 160 * time.Millisecond
+var frameInterval = 80 * time.Millisecond // PiG: tui/loader.go DefaultLoaderIntervalMs
 
 type spinner struct {
 	mu   sync.Mutex
